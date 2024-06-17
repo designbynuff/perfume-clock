@@ -1,10 +1,30 @@
 #include <Wire.h>
 #include "DS1307.h"
-#include <RTClib.h>
 
-const int atomizerPins[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11}; // Pins for atomizers 0-9
+// Neopixel
+#include <Adafruit_NeoPixel.h>
+#ifdef __AVR__
+ #include <avr/power.h> // Required for 16 MHz Adafruit Trinket
+#endif
 
-RTC_DS3231 rtc;
+// Which pin on the Arduino is connected to the NeoPixels?
+#define PIN        4 // On Trinket or Gemma, suggest changing this to 1
+
+// How many NeoPixels are attached to the Arduino?
+#define NUMPIXELS 10 // Popular NeoPixel ring size
+
+// When setting up the NeoPixel library, we tell it how many pixels,
+// and which pin to use to send signals. Note that for older NeoPixel
+// strips you might need to change the third parameter -- see the
+// strandtest example for more information on possible values.
+Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
+
+#define DELAYVAL 500 // Time (in milliseconds) to pause between pixels
+
+DS1307 clock; // Define an object of DS1307 class
+
+const int atomizerPins[] = {A0, A1, A2, A3, 2, 3, 4, 5, 6, 7}; // Pins for atomizers 0-9. Use in this order!
+
 int currentDigit = 0; // Will be updated based on column
 int prevSeconds = -1;
 int prevH = -1, prevh = -1, prevM = -1, prevm = -1;
@@ -22,16 +42,26 @@ struct FallbackTime {
 void setup() {
   Serial.begin(9600);
   Wire.begin();
+
+  pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
   
-  if (!rtc.begin()) {
-    Serial.println("Couldn't find RTC, using fallback timekeeping");
+  clock.begin();
+
+  // Attempt to read the current time from the RTC
+  clock.getTime(); // Retrieve time from RTC
+  if (clock.hour >= 24 || clock.minute >= 60 || clock.second >= 60) {
+    Serial.println("Couldn't get valid time from RTC, setting to fallback time 00:00:00");
     rtcAvailable = false;
     fallbackTime.hours = 0;
     fallbackTime.minutes = 0;
     fallbackTime.seconds = 0;
-  } else if (rtc.lostPower()) {
-    Serial.println("RTC lost power, setting time to current compile time");
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  } else {
+    Serial.print("RTC found and time is set to: ");
+    Serial.print(clock.hour);
+    Serial.print(":");
+    Serial.print(clock.minute);
+    Serial.print(":");
+    Serial.println(clock.second);
   }
 
   for (int i = 0; i < 10; i++) {
@@ -41,9 +71,11 @@ void setup() {
 }
 
 void loop() {
+  pixels.clear(); // Set all pixel colors to 'off'
+
   if (rtcAvailable) {
-    DateTime now = rtc.now();
-    updateTime(now.hour(), now.minute(), now.second());
+    clock.getTime();
+    updateTime(clock.hour, clock.minute, clock.second);
   } else {
     unsigned long currentMillis = millis();
     if (currentMillis - previousMillis >= interval) {
@@ -88,26 +120,5 @@ void updateTime(int hours, int minutes, int seconds) {
 
   // Control Atomizer
   if (seconds == 0) {
-    Serial.print("Turning on atomizer ");
-    Serial.println(currentNumber);
-    digitalWrite(atomizerPins[currentNumber], HIGH); // Turn on the atomizer
-    delay(1000); // Keep it on for one second
-    digitalWrite(atomizerPins[currentNumber], LOW); // Turn off the atomizer
-  }
-}
-
-void incrementFallbackTime() {
-  fallbackTime.seconds++;
-  if (fallbackTime.seconds >= 60) {
-    fallbackTime.seconds = 0;
-    fallbackTime.minutes++;
-    if (fallbackTime.minutes >= 60) {
-      fallbackTime.minutes = 0;
-      fallbackTime.hours++;
-      if (fallbackTime.hours >= 24) {
-        fallbackTime.hours = 0;
-      }
-    }
-  }
-  updateTime(fallbackTime.hours, fallbackTime.minutes, fallbackTime.seconds);
-}
+    Serial.print("Turning on atomizer pixels.setPixelColor()currentNumber, pixels.COlor()202, 0, 150, 800;
+  pixels.show();
