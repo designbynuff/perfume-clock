@@ -1,5 +1,7 @@
 #include <Wire.h>
-#include "DS1307.h"
+#include <RTClib.h>
+
+RTC_DS1307 rtc;
 
 // Neopixel
 #include <Adafruit_NeoPixel.h>
@@ -17,11 +19,9 @@
 // and which pin to use to send signals. Note that for older NeoPixel
 // strips you might need to change the third parameter -- see the
 // strandtest example for more information on possible values.
-Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800); 
 
 #define DELAYVAL 500 // Time (in milliseconds) to pause between pixels
-
-DS1307 clock; // Define an object of DS1307 class
 
 const int atomizerPins[] = {A0, A1, A2, A3, 2, 3, 4, 5, 6, 7}; // Pins for atomizers 0-9. Use in this order!
 
@@ -45,23 +45,17 @@ void setup() {
 
   pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
   
-  clock.begin();
-
-  // Attempt to read the current time from the RTC
-  clock.getTime(); // Retrieve time from RTC
-  if (clock.hour >= 24 || clock.minute >= 60 || clock.second >= 60) {
-    Serial.println("Couldn't get valid time from RTC, setting to fallback time 00:00:00");
+  if (!rtc.begin()) {
+    Serial.println("Couldn't find RTC, setting to fallback time 00:00:00");
     rtcAvailable = false;
     fallbackTime.hours = 0;
     fallbackTime.minutes = 0;
     fallbackTime.seconds = 0;
-  } else {
-    Serial.print("RTC found and time is set to: ");
-    Serial.print(clock.hour);
-    Serial.print(":");
-    Serial.print(clock.minute);
-    Serial.print(":");
-    Serial.println(clock.second);
+  }
+
+  if (!rtc.isrunning()) {
+    Serial.println("RTC is NOT running!");
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   }
 
   for (int i = 0; i < 10; i++) {
@@ -74,8 +68,8 @@ void loop() {
   pixels.clear(); // Set all pixel colors to 'off'
 
   if (rtcAvailable) {
-    clock.getTime();
-    updateTime(clock.hour, clock.minute, clock.second);
+    DateTime now = rtc.now();
+    updateTime(now.hour(), now.minute(), now.second());
   } else {
     unsigned long currentMillis = millis();
     if (currentMillis - previousMillis >= interval) {
@@ -120,5 +114,29 @@ void updateTime(int hours, int minutes, int seconds) {
 
   // Control Atomizer
   if (seconds == 0) {
-    Serial.print("Turning on atomizer pixels.setPixelColor()currentNumber, pixels.COlor()202, 0, 150, 800;
-  pixels.show();
+    Serial.print("Turning on atomizer ");
+    Serial.print(currentNumber);
+    Serial.print(" at ");
+    Serial.print(pixels.Color(202, 0, 150));
+    Serial.println(" for 800 milliseconds");
+
+    pixels.setPixelColor(currentNumber, pixels.Color(202, 0, 150));
+    pixels.show();
+  }
+}
+
+void incrementFallbackTime() {
+  fallbackTime.seconds++;
+  if (fallbackTime.seconds >= 60) {
+    fallbackTime.seconds = 0;
+    fallbackTime.minutes++;
+    if (fallbackTime.minutes >= 60) {
+      fallbackTime.minutes = 0;
+      fallbackTime.hours++;
+      if (fallbackTime.hours >= 24) {
+        fallbackTime.hours = 0;
+      }
+    }
+  }
+  updateTime(fallbackTime.hours, fallbackTime.minutes, fallbackTime.seconds);
+}
