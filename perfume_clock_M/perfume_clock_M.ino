@@ -1,7 +1,6 @@
 #include <Wire.h>
+#include "DS1307.h"
 #include <RTClib.h>
-
-RTC_DS1307 rtc;
 
 // Neopixel
 #include <Adafruit_NeoPixel.h>
@@ -13,21 +12,16 @@ RTC_DS1307 rtc;
 #define PIN        8 // First available pin after atomizers
 
 // How many NeoPixels are attached to the Arduino?
-#define NUMPIXELS 10 // Max no. of lights in a column
+#define NUMPIXELS 10 // Max LEDs in a column
 
-// When setting up the NeoPixel library, we tell it how many pixels,
-// and which pin to use to send signals. Note that for older NeoPixel
-// strips you might need to change the third parameter -- see the
-// strandtest example for more information on possible values.
-Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800); 
+Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
-#define DELAYVAL 500 // Time (in milliseconds) to pause between pixels
-
-const int sprayTime = 1000; // How long to generate mist
+// Rename this from 'clock' to 'rtc'
+DS1307 rtc; // Define an object of DS1307 class
 
 const int atomizerPins[] = {A0, A1, A2, A3, 2, 3, 4, 5, 6, 7}; // Pins for atomizers 0-9. Use in this order!
 
-int currentDigit = 0; // Will be updated based on column
+int currentDigit = 2; // H,h,M,m = 0,1,2,3
 int prevSeconds = -1;
 int prevH = -1, prevh = -1, prevM = -1, prevm = -1;
 
@@ -41,23 +35,39 @@ struct FallbackTime {
   int seconds;
 } fallbackTime;
 
+int currentNumber = -1;
+
+unsigned long atomizerOnTime = 0;
+const unsigned long atomizerDuration = 1000; // Duration the atomizer is on (in milliseconds)
+bool atomizerActive = false;
+
+// Forward declaration of incrementFallbackTime
+void incrementFallbackTime();
+void updateTime(int hours, int minutes, int seconds); // Forward declaration of updateTime
+
 void setup() {
   Serial.begin(9600);
   Wire.begin();
 
   pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
   
-  if (!rtc.begin()) {
-    Serial.println("Couldn't find RTC, setting to fallback time 00:00:00");
+  rtc.begin(); // Changed from clock.begin() to rtc.begin()
+
+  // Attempt to read the current time from the RTC
+  rtc.getTime(); // Retrieve time from RTC
+  if (rtc.hour >= 24 || rtc.minute >= 60 || rtc.second >= 60) {
+    Serial.println("Couldn't get valid time from RTC, setting to fallback time 00:00:00");
     rtcAvailable = false;
     fallbackTime.hours = 0;
     fallbackTime.minutes = 0;
     fallbackTime.seconds = 0;
-  }
-
-  if (!rtc.isrunning()) {
-    Serial.println("RTC is NOT running!");
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  } else {
+    Serial.print("RTC found and time is set to: ");
+    Serial.print(rtc.hour);
+    Serial.print(":");
+    Serial.print(rtc.minute);
+    Serial.print(":");
+    Serial.println(rtc.second);
   }
 
   for (int i = 0; i < 10; i++) {
@@ -70,14 +80,29 @@ void loop() {
   pixels.clear(); // Set all pixel colors to 'off'
 
   if (rtcAvailable) {
-    DateTime now = rtc.now();
-    updateTime(now.hour(), now.minute(), now.second());
+    rtc.getTime(); // Changed from clock.getTime() to rtc.getTime()
+    updateTime(rtc.hour, rtc.minute, rtc.second); // Changed from clock.hour etc. to rtc.hour etc.
   } else {
     unsigned long currentMillis = millis();
     if (currentMillis - previousMillis >= interval) {
       previousMillis = currentMillis;
       incrementFallbackTime();
     }
+  }
+
+  // Control Atomizer
+  unsigned long currentMillis = millis();
+  if (atomizerActive && (currentMillis - atomizerOnTime >= atomizerDuration)) {
+    Serial.print("Turning off atomizer ");
+    Serial.println(currentNumber);
+    digitalWrite(atomizerPins[currentNumber], LOW); // Turn off the atomizer
+    atomizerActive = false; // Reset the atomizer status
+  }
+
+  // Update LEDs
+  if (currentNumber != -1) {
+    pixels.setPixelColor(currentNumber, pixels.Color(200, 150, 80));
+    pixels.show();
   }
 }
 
@@ -88,7 +113,7 @@ void updateTime(int hours, int minutes, int seconds) {
   int m = minutes % 10;
 
   int digits[] = {H, h, M, m};
-  int currentNumber = digits[currentDigit]; // Get the digit for this column
+  currentNumber = digits[currentDigit]; // Get the digit for this column
 
   // Print the current time if it changes
   if (seconds != prevSeconds) {
@@ -114,17 +139,13 @@ void updateTime(int hours, int minutes, int seconds) {
     prevm = m;
   }
 
-  // Control Atomizer
-  if (seconds == 0) {
+  // Turn on the atomizer at the start of a new minute
+  if (seconds == 0 && !atomizerActive) {
     Serial.print("Turning on atomizer ");
-    Serial.print(currentNumber);
-
-    pixels.setPixelColor(currentNumber, pixels.Color(202, 0, 150));
-    pixels.show();
-
+    Serial.println(currentNumber);
     digitalWrite(atomizerPins[currentNumber], HIGH); // Turn on the atomizer
-    delay(sprayTime);
-    digitalWrite(atomizerPins[currentNumber], LOW); // Turn off the atomizer
+    atomizerOnTime = millis(); // Record the time the atomizer was turned on
+    atomizerActive = true; // Set the atomizer status to active
   }
 }
 
@@ -141,5 +162,11 @@ void incrementFallbackTime() {
       }
     }
   }
+  Serial.print("Fallback time: ");
+  Serial.print(fallbackTime.hours);
+  Serial.print(":");
+  Serial.print(fallbackTime.minutes);
+  Serial.print(":");
+  Serial.println(fallbackTime.seconds);
   updateTime(fallbackTime.hours, fallbackTime.minutes, fallbackTime.seconds);
 }
